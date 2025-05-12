@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chatbot AI</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css" rel="stylesheet">
+    <style>
+        /* Custom scrollbar untuk chatbox dan history list */
+        #chatbox::-webkit-scrollbar, #historyListContainer::-webkit-scrollbar {
+            width: 8px;
+        }
+        #chatbox::-webkit-scrollbar-track, #historyListContainer::-webkit-scrollbar-track {
+            background: #1e293b; /* slate-800 */
+        }
+        #chatbox::-webkit-scrollbar-thumb, #historyListContainer::-webkit-scrollbar-thumb {
+            background: #475569; /* slate-600 */
+            border-radius: 4px;
+        }
+        #chatbox::-webkit-scrollbar-thumb:hover, #historyListContainer::-webkit-scrollbar-thumb:hover {
+            background: #64748b; /* slate-500 */
+        }
+        .message-fade-in {
+            animation: fadeIn 0.5s ease-out;
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        /* Untuk bayangan di atas footer */
+        .shadow-up {
+            box-shadow: 0 -4px 6px -1px rgba(0, 0, 0, 0.1), 0 -2px 4px -1px rgba(0, 0, 0, 0.06);
+        }
+        /* Tampilkan tombol hapus saat hover di item histori */
+        .history-item:hover .delete-history-btn {
+            display: inline-flex; /* atau flex, tergantung kebutuhan alignment */
+        }
+        .delete-history-btn {
+            display: none;
+        }
+    </style>
+</head>
+<body class="bg-slate-900 text-slate-200 flex h-screen font-sans overflow-hidden">
+
+    <!-- Sidebar -->
+    <aside id="sidebar" class="w-72 bg-slate-800 p-4 space-y-4 flex flex-col shadow-lg flex-shrink-0">
+        <!-- Tombol Chat Baru -->
+        <form action="{{ url_for('new_chat') }}" method="POST" class="w-full">
+            <button type="submit" id="newChatButton" 
+                    class="w-full bg-sky-600 hover:bg-sky-500 text-white font-semibold p-3 rounded-lg transition duration-150 ease-in-out shadow hover:shadow-lg flex items-center justify-center">
+                <i class="fas fa-plus mr-2"></i> Chat Baru
+            </button>
+        </form>
+
+        <!-- Pencarian Histori -->
+        <div class="relative">
+            <input type="text" id="searchHistoryInput" placeholder="Cari histori..."
+                   class="w-full p-2 bg-slate-700 border border-slate-600 rounded-lg focus:ring-1 focus:ring-sky-500 focus:outline-none placeholder-slate-400 text-slate-200 pl-8">
+            <i class="fas fa-search absolute left-2.5 top-1/2 transform -translate-y-1/2 text-slate-400"></i>
+        </div>
+
+        <!-- Daftar Histori Chat -->
+        <h2 class="text-lg font-semibold text-sky-400 pt-2 border-t border-slate-700">Histori Chat</h2>
+        <div class="flex-grow overflow-y-auto pr-1 -mr-1" id="historyListContainer"> <!-- -mr-1 untuk 'menyembunyikan' scrollbar track jika tidak diperlukan -->
+            <ul id="historyList" class="space-y-1">
+                {% if all_chat_titles %}
+                    {% for chat_item in all_chat_titles %}
+                    <li class="history-item group flex items-center justify-between p-2 rounded-md hover:bg-slate-700 cursor-pointer text-sm 
+                               {{ 'bg-sky-700 font-semibold' if chat_item.id == current_chat_id else 'bg-slate-700/50' }}"
+                        data-chat-id="{{ chat_item.id }}">
+                        <a href="{{ url_for('load_chat', chat_id=chat_item.id) }}" class="truncate block flex-grow" title="{{ chat_item.title }}">
+                            {{ chat_item.title }}
+                        </a>
+                        <form action="{{ url_for('delete_chat', chat_id=chat_item.id) }}" method="POST" class="ml-2 delete-history-btn" onsubmit="return confirm('Anda yakin ingin menghapus chat ini?');">
+                            <button type="submit" class="text-slate-400 hover:text-red-500 p-1 rounded-full hover:bg-slate-600 transition-colors">
+                                <i class="fas fa-trash-alt fa-xs"></i>
+                            </button>
+                        </form>
+                    </li>
+                    {% endfor %}
+                {% else %}
+                    <li>
+                        <p class="text-slate-400 text-xs text-center w-full">Belum ada histori chat.</p>
+                    </li>
+                {% endif %}
+            </ul>
+        </div>
+        <p class="text-xs text-slate-500 text-center mt-auto pt-2 border-t border-slate-700">
+            Judul akan dibuat otomatis oleh AI setelah beberapa percakapan.
+        </p>
+    </aside>
+
+    <!-- Main Content Area -->
+    <div class="flex-grow flex flex-col h-screen overflow-hidden"> <!-- overflow-hidden untuk mencegah double scrollbar -->
+        <!-- Header -->
+        <header class="bg-slate-800 p-4 shadow-md flex-shrink-0">
+            <h1 class="text-2xl font-semibold text-sky-400 text-center">
+                <i class="fas fa-brain mr-2"></i>Chatbot Belajar Cerdas
+            </h1>
+            <p class="text-sm text-slate-400 text-center">Tanyakan apa saja tentang Bahasa Inggris, Matematika, dan Sains!</p>
+        </header>
+
+        <!-- Chat Area -->
+        <main id="chatbox" class="flex-grow p-6 space-y-4 overflow-y-auto">
+            {% if chat_history %}
+                {% for entry in chat_history %}
+                    <div class="flex {% if entry.sender == 'user' %}justify-end{% else %}justify-start{% endif %} message-fade-in">
+                        <div class="p-3 rounded-lg max-w-xl shadow
+                                    {% if entry.sender == 'user' %}bg-sky-700 text-white{% else %}bg-slate-700 text-slate-200{% endif %}">
+                            <p class="text-sm">{{ entry.message | replace('\n', '<br>') | safe }}</p>
+                        </div>
+                    </div>
+                {% endfor %}
+                <script>
+                    document.addEventListener('DOMContentLoaded', () => {
+                        const chatboxElement = document.getElementById('chatbox');
+                        if (chatboxElement) {
+                            chatboxElement.scrollTop = chatboxElement.scrollHeight;
+                        }
+                    });
+                </script>
+            {% else %}
+                <p class="text-slate-400 text-center">Mulai percakapan baru atau pilih dari histori!</p>
+            {% endif %}  <!-- Menambahkan endif yang hilang -->
+        </main>
+
+        <!-- Input Area -->
+        <footer class="bg-slate-800 p-4 shadow-up flex-shrink-0">
+            <div class="flex items-center space-x-3">
+                <input type="text" id="userInput" placeholder="Ketik pesanmu di sini..."
+                       class="flex-grow p-3 bg-slate-700 border border-slate-600 rounded-lg focus:ring-2 focus:ring-sky-500 focus:outline-none placeholder-slate-400 text-slate-200">
+                <button id="sendButton"
+                        class="bg-sky-600 hover:bg-sky-500 text-white font-semibold p-3 rounded-lg transition duration-150 ease-in-out shadow hover:shadow-lg flex items-center justify-center w-28">
+                    <i class="fas fa-paper-plane mr-2"></i> Kirim
+                </button>
+            </div>
+        </footer>
+    </div>
+
+    <script>
+        const chatbox = document.getElementById('chatbox');
+        const userInput = document.getElementById('userInput');
+        const sendButton = document.getElementById('sendButton');
+        const historyList = document.getElementById('historyList');
+        const searchHistoryInput = document.getElementById('searchHistoryInput');
+        const currentChatId = "{{ current_chat_id | safe }}";
+        let typingIndicatorElement = null;
+
+        function addMessageToChatbox(message, sender) {
+            const messageDiv = document.createElement('div');
+            messageDiv.classList.add('flex', 'message-fade-in');
+
+            const bubbleDiv = document.createElement('div');
+            bubbleDiv.classList.add('p-3', 'rounded-lg', 'max-w-xl', 'shadow');
+            bubbleDiv.innerHTML = `<p class="text-sm">${message.replace(/\n/g, '<br>')}</p>`;
+
+            if (sender === 'user') {
+                messageDiv.classList.add('justify-end');
+                bubbleDiv.classList.add('bg-sky-700', 'text-white');
+            } else { // AI
+                messageDiv.classList.add('justify-start');
+                bubbleDiv.classList.add('bg-slate-700', 'text-slate-200');
+            }
+
+            messageDiv.appendChild(bubbleDiv);
+            if (chatbox) chatbox.appendChild(messageDiv);
+            if (chatbox) chatbox.scrollTop = chatbox.scrollHeight;
+        }
+
+        function showTypingIndicator() {
+            if (typingIndicatorElement) return; // Already showing
+            typingIndicatorElement = document.createElement('div');
+            typingIndicatorElement.classList.add('flex', 'justify-start', 'message-fade-in');
+            typingIndicatorElement.innerHTML = `
+                <div class="bg-slate-700 p-3 rounded-lg max-w-xs shadow">
+                    <p class="text-sm italic text-slate-400">AI sedang mengetik<span class="animate-pulse">...</span></p>
+                </div>
+            `;
+            if (chatbox) chatbox.appendChild(typingIndicatorElement);
+            if (chatbox) chatbox.scrollTop = chatbox.scrollHeight;
+        }
+
+        function hideTypingIndicator() {
+            if (typingIndicatorElement) {
+                typingIndicatorElement.remove();
+                typingIndicatorElement = null;
+            }
+        }
+
+        async function handleSendMessage() {
+            const message = userInput.value.trim();
+            if (message === '') return;
+
+            addMessageToChatbox(message, 'user');
+            userInput.value = '';
+            userInput.disabled = true;
+            sendButton.disabled = true;
+            sendButton.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i> Mengirim...';
+            showTypingIndicator();
+
+            try {
+                const response = await fetch("{{ url_for('send_message') }}", {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ message: message }),
+                });
+
+                hideTypingIndicator();
+                const data = await response.json();
+
+                if (!response.ok) {
+                    addMessageToChatbox(data.error || 'Gagal mengirim pesan. Status: ' + response.status, 'ai');
+                } else {
+                    addMessageToChatbox(data.response, 'ai');
+                    if (data.new_title && historyList) {
+                        const activeHistoryItemLink = historyList.querySelector(`li[data-chat-id="${currentChatId}"] a`);
+                        if (activeHistoryItemLink) {
+                            activeHistoryItemLink.textContent = data.new_title;
+                            activeHistoryItemLink.title = data.new_title;
+                        }
+                    }
+                }
+
+            } catch (error) {
+                hideTypingIndicator();
+                console.error('Error sending message:', error);
+                addMessageToChatbox('Maaf, terjadi kesalahan koneksi.', 'ai');
+            } finally {
+                userInput.disabled = false;
+                sendButton.disabled = false;
+                sendButton.innerHTML = '<i class="fas fa-paper-plane mr-2"></i> Kirim';
+                if (userInput) userInput.focus();
+            }
+        }
+
+        sendButton.addEventListener('click', handleSendMessage);
+        userInput.addEventListener('keypress', function (e) {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                handleSendMessage();
+            }
+        });
+
+        if (searchHistoryInput && historyList) {
+            searchHistoryInput.addEventListener('input', function(e) {
+                const searchTerm = e.target.value.toLowerCase();
+                const items = historyList.getElementsByTagName('li');
+                Array.from(items).forEach(item => {
+                    const titleElement = item.querySelector('a');
+                    if (titleElement) {
+                        const title = titleElement.textContent.toLowerCase();
+                        if (title.includes(searchTerm)) {
+                            item.style.display = 'flex';
+                        } else {
+                            item.style.display = 'none';
+                        }
+                    }
+                });
+            });
+        }
+        
+        if (userInput) userInput.focus();
+    </script>
+</body>
+</html>

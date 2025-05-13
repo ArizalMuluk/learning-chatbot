@@ -26,8 +26,8 @@ chatbot-learning-app
 ## Installation
 1. Clone the repository:
    ```
-   git clone <repository-url>
-   cd chatbot-learning-app
+   git clone https://github.com/ArizalMuluk/learning-chatbot.git
+   cd learning-chatbot/
    ```
 
 2. Install the required dependencies:
@@ -37,7 +37,7 @@ chatbot-learning-app
 
 3. Run the application:
    ```
-   python app.py
+   flask run
    ```
 
 4. Open your web browser and navigate to `http://127.0.0.1:5000` to access the chatbot.

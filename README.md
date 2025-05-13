@@ -12,8 +12,8 @@ The Chatbot Learning App is an interactive web application designed to assist us
 ## Project Structure
 ```
 chatbot-learning-app
-├── test
-│   ├── ai_suggest.py
+├── tests
+│   ├── test_asug.py
 ├── templates
 │   └── chat.html
 ├── utils

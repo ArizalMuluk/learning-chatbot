@@ -81,7 +81,12 @@ def delete_chat(chat_id):
 
 @app.route('/send_message', methods=['POST'])
 def send_message():
-    user_message = request.json.get('message')
+    # Perbaikan: Menangani kasus di mana request body bukan JSON
+    data = request.get_json(silent=True)
+    if not data or 'message' not in data:
+        return jsonify({'error': 'Request tidak valid atau pesan tidak ada.'}), 400
+
+    user_message = data.get('message')
     current_chat_id = session.get('current_chat_id')
 
     if not user_message:
@@ -89,38 +94,26 @@ def send_message():
     if not current_chat_id or current_chat_id not in session.get('chats', {}):
         return jsonify({'error': 'Sesi chat tidak valid atau tidak ditemukan.'}), 400
 
-    ai_response = get_ai_suggestion(user_message)
-
     # Tambahkan pesan ke chat yang aktif
+    ai_response = get_ai_suggestion(user_message)
     session['chats'][current_chat_id]['messages'].append({'sender': 'user', 'message': user_message})
     session['chats'][current_chat_id]['messages'].append({'sender': 'ai', 'message': ai_response})
     
-    # Logika untuk membuat judul otomatis oleh AI
-    # Coba buat judul jika ini adalah pesan awal dan judul masih default
+    # Logika untuk membuat judul otomatis oleh AI (dipindahkan dari app.py)
     current_chat_data = session['chats'][current_chat_id]
     # Judul dibuat setelah ada 1 pasang pertanyaan pengguna & jawaban AI (total 3 pesan: AI awal, User, AI)
     # Dan jika judul masih mengandung "Chat Baru"
     if "Chat Baru" in current_chat_data['title'] and len(current_chat_data['messages']) >= 3:
         try:
-            # Ambil beberapa pesan awal untuk konteks judul
-            context_for_title = ""
-            if len(current_chat_data['messages']) >= 3: # AI awal, User ke-1, AI ke-1
-                user_first_q = current_chat_data['messages'][1]['message']
-                ai_first_r = current_chat_data['messages'][2]['message']
-                context_for_title = f"User: {user_first_q}\nAI: {ai_first_r}"
-            
-            if context_for_title:
-                title_prompt = f"Buatlah judul singkat (maksimal 5 kata dan relevan) untuk percakapan berikut:\n{context_for_title}"
-                generated_title = get_ai_suggestion(title_prompt)
-                # Bersihkan judul dari prefix atau newline yang mungkin dihasilkan AI
-                generated_title = generated_title.replace("Judul:", "").replace("Title:", "").strip().split('\n')[0]
-                if generated_title: # Pastikan judul tidak kosong
-                    session['chats'][current_chat_id]['title'] = generated_title[:50] # Batasi panjang judul
+            user_first_q = current_chat_data['messages'][1]['message']
+            context_for_title = f"Buatlah judul yang sangat singkat (maksimal 5 kata dan relevan) untuk percakapan yang diawali dengan pertanyaan: '{user_first_q}'"
+            generated_title = get_ai_suggestion(context_for_title)
+            # Bersihkan judul dari prefix atau newline yang mungkin dihasilkan AI
+            generated_title = generated_title.replace("Judul:", "").replace("Title:", "").strip().split('\n')[0]
+            if generated_title: # Pastikan judul tidak kosong
+                session['chats'][current_chat_id]['title'] = generated_title[:50] # Batasi panjang judul
         except Exception as e:
             print(f"Error generating title with AI: {e}") # Log error, jangan sampai mengganggu chat utama
 
-    session.modified = True # Pastikan sesi disimpan jika list diubah
+    session.modified = True
     return jsonify({'response': ai_response, 'new_title': session['chats'][current_chat_id]['title']})
-
-if __name__ == '__main__':
-    app.run(debug=True)

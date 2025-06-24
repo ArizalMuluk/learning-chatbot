@@ -4,8 +4,9 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Chatbot AI</title>
-    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.tailwindcss.com?plugins=typography"></script>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <style>
         /* Custom scrollbar untuk chatbox dan history list */
         #chatbox::-webkit-scrollbar, #historyListContainer::-webkit-scrollbar {
@@ -114,20 +115,11 @@
             {% if chat_history %}
                 {% for entry in chat_history %}
                     <div class="flex {% if entry.sender == 'user' %}justify-end{% else %}justify-start{% endif %} message-fade-in">
-                        <div class="p-3 rounded-lg max-w-xl shadow
-                                    {% if entry.sender == 'user' %}bg-sky-700 text-white{% else %}bg-slate-700 text-slate-200{% endif %}">
-                            <p class="text-sm">{{ entry.message | replace('\n', '<br>') | safe }}</p>
+                        <div class="p-3 rounded-lg max-w-xl shadow {% if entry.sender == 'user' %}bg-sky-700 text-white{% else %}bg-slate-700 text-slate-200{% endif %}">
+                            <div class="text-sm message-content" data-sender="{{ entry.sender }}">{{ entry.message }}</div>
                         </div>
                     </div>
                 {% endfor %}
-                <script>
-                    document.addEventListener('DOMContentLoaded', () => {
-                        const chatboxElement = document.getElementById('chatbox');
-                        if (chatboxElement) {
-                            chatboxElement.scrollTop = chatboxElement.scrollHeight;
-                        }
-                    });
-                </script>
             {% else %}
                 <p class="text-slate-400 text-center">Mulai percakapan baru atau pilih dari histori!</p>
             {% endif %}  <!-- Menambahkan endif yang hilang -->
@@ -156,90 +148,129 @@
         const sidebar = document.getElementById('sidebar');
         const sidebarToggle = document.getElementById('sidebarToggle');
         const overlay = document.getElementById('overlay');
-        let typingIndicatorElement = null;
 
-        function addMessageToChatbox(message, sender) {
+        function addUserMessageToChatbox(message) {
             const messageDiv = document.createElement('div');
-            messageDiv.classList.add('flex', 'message-fade-in');
+            messageDiv.classList.add('flex', 'justify-end', 'message-fade-in');
 
             const bubbleDiv = document.createElement('div');
-            bubbleDiv.classList.add('p-3', 'rounded-lg', 'max-w-xl', 'shadow');
-            bubbleDiv.innerHTML = `<p class="text-sm">${message.replace(/\n/g, '<br>')}</p>`;
-
-            if (sender === 'user') {
-                messageDiv.classList.add('justify-end');
-                bubbleDiv.classList.add('bg-sky-700', 'text-white');
-            } else { // AI
-                messageDiv.classList.add('justify-start');
-                bubbleDiv.classList.add('bg-slate-700', 'text-slate-200');
-            }
+            bubbleDiv.classList.add('p-3', 'rounded-lg', 'max-w-xl', 'shadow', 'text-sm', 'bg-sky-700', 'text-white');
+            bubbleDiv.innerHTML = message.replace(/\n/g, '<br>');
 
             messageDiv.appendChild(bubbleDiv);
             if (chatbox) chatbox.appendChild(messageDiv);
             if (chatbox) chatbox.scrollTop = chatbox.scrollHeight;
         }
 
-        function showTypingIndicator() {
-            if (typingIndicatorElement) return; // Already showing
-            typingIndicatorElement = document.createElement('div');
-            typingIndicatorElement.classList.add('flex', 'justify-start', 'message-fade-in');
-            typingIndicatorElement.innerHTML = `
-                <div class="bg-slate-700 p-3 rounded-lg max-w-xs shadow">
-                    <p class="text-sm italic text-slate-400">AI sedang mengetik<span class="animate-pulse">...</span></p>
-                </div>
-            `;
-            if (chatbox) chatbox.appendChild(typingIndicatorElement);
-            if (chatbox) chatbox.scrollTop = chatbox.scrollHeight;
-        }
-
-        function hideTypingIndicator() {
-            if (typingIndicatorElement) {
-                typingIndicatorElement.remove();
-                typingIndicatorElement = null;
-            }
-        }
-
         async function handleSendMessage() {
             const message = userInput.value.trim();
             if (message === '') return;
 
-            addMessageToChatbox(message, 'user');
+            addUserMessageToChatbox(message);
             userInput.value = '';
             userInput.disabled = true;
             sendButton.disabled = true;
-            sendButton.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i> Mengirim...';
-            showTypingIndicator();
+            sendButton.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i> Berpikir...';
+            
+            // Buat placeholder untuk respons AI yang akan di-stream
+            const aiMessageId = 'ai-message-' + Date.now();
+            const aiMessageDiv = document.createElement('div');
+            aiMessageDiv.classList.add('flex', 'justify-start', 'message-fade-in');
+            aiMessageDiv.innerHTML = `
+                <div id="${aiMessageId}" class="p-3 rounded-lg max-w-xl shadow bg-slate-700 text-slate-200 prose prose-sm prose-invert max-w-none">
+                    <span class="animate-pulse">▍</span>
+                </div>
+            `;
+            if (chatbox) chatbox.appendChild(aiMessageDiv);
+            if (chatbox) chatbox.scrollTop = chatbox.scrollHeight;
+
+            const aiBubble = document.getElementById(aiMessageId);
+            let fullResponse = '';
 
             try {
-                const response = await fetch("{{ url_for('send_message') }}", {
+                const streamResponse = await fetch("{{ url_for('send_message') }}", {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
+                    headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ message: message }),
                 });
 
-                hideTypingIndicator();
-                const data = await response.json();
+                if (!streamResponse.ok) {
+                    throw new Error(`Server error: ${streamResponse.status}`);
+                }
 
-                if (!response.ok) {
-                    addMessageToChatbox(data.error || 'Gagal mengirim pesan. Status: ' + response.status, 'ai');
-                } else {
-                    addMessageToChatbox(data.response, 'ai');
-                    if (data.new_title && historyList) {
-                        const activeHistoryItemLink = historyList.querySelector(`li[data-chat-id="${currentChatId}"] a`);
-                        if (activeHistoryItemLink) {
-                            activeHistoryItemLink.textContent = data.new_title;
-                            activeHistoryItemLink.title = data.new_title;
+                const reader = streamResponse.body.getReader();
+                const decoder = new TextDecoder();
+                aiBubble.innerHTML = ''; // Hapus kursor berkedip awal
+
+                while (true) {
+                    const { value, done } = await reader.read();
+                    if (done) break;
+
+                    const chunk = decoder.decode(value, { stream: true }); // stream: true is important
+                    const lines = chunk.split('\n\n').filter(line => line.trim() !== '');
+
+                    for (const line of lines) {
+                        if (!line.startsWith('data: ')) continue;
+
+                        const dataStr = line.substring(6).trim();
+                        if (dataStr === '[DONE]') continue;
+
+                        try {
+                            const data = JSON.parse(dataStr);
+
+                            if (data.error) {
+                                fullResponse = `*Error: ${data.error}*`;
+                                break; // Keluar dari loop jika ada error dari backend
+                            }
+
+                            const content = data.choices?.[0]?.delta?.content || '';
+                            if (content) {
+                                fullResponse += content;
+                                // Update bubble dengan markdown yang di-parse + kursor
+                                aiBubble.innerHTML = marked.parse(fullResponse + '<span class="animate-pulse">▍</span>');
+                                if (chatbox) chatbox.scrollTop = chatbox.scrollHeight;
+                            }
+                        } catch (e) {
+                            console.error('Gagal mem-parsing data stream:', dataStr, e);
                         }
                     }
+                    if (fullResponse.includes('*Error')) break;
                 }
 
             } catch (error) {
-                hideTypingIndicator();
-                console.error('Error sending message:', error);
-                addMessageToChatbox('Maaf, terjadi kesalahan koneksi.', 'ai');
+                console.error('Error fetching stream:', error);
+                fullResponse = '*Maaf, terjadi kesalahan koneksi saat streaming.*';
             } finally {
+                // Render final AI message tanpa kursor
+                if (aiBubble) {
+                    aiBubble.innerHTML = marked.parse(fullResponse);
+                }
+
+                // Setelah streaming selesai, panggil endpoint untuk menyimpan chat dan memperbarui judul
+                if (!fullResponse.startsWith('*Error') && !fullResponse.startsWith('*Maaf')) {
+                    try {
+                        const saveResponse = await fetch("{{ url_for('save_chat') }}", {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ 
+                                user_message: message, 
+                                ai_message: fullResponse 
+                            }),
+                        });
+                        const saveData = await saveResponse.json();
+                        if (saveResponse.ok && saveData.new_title) {
+                            const activeItemLink = historyList.querySelector(`li[data-chat-id="${currentChatId}"] a`);
+                            if (activeItemLink && activeItemLink.textContent !== saveData.new_title) {
+                                activeItemLink.textContent = saveData.new_title;
+                                activeItemLink.title = saveData.new_title;
+                            }
+                        }
+                    } catch (saveError) {
+                        console.error('Gagal menyimpan chat:', saveError);
+                    }
+                }
+
+                // Aktifkan kembali input setelah semua proses selesai
                 userInput.disabled = false;
                 sendButton.disabled = false;
                 sendButton.innerHTML = '<i class="fas fa-paper-plane mr-2"></i> Kirim';
@@ -294,6 +325,31 @@
                 sidebar.classList.add('-translate-x-full'); // Hide it (will be overridden by lg:translate-x-0)
                 overlay.classList.add('hidden');
                 document.body.classList.remove('overflow-hidden');
+            }
+        });
+
+        // Parse initial messages on page load
+        document.addEventListener('DOMContentLoaded', () => {
+            // Parse existing messages
+            document.querySelectorAll('.message-content').forEach(el => {
+                const sender = el.dataset.sender;
+                const content = el.textContent; // Mengambil teks mentah (Jinja sudah meng-escape HTML)
+                const parentBubble = el.parentElement;
+
+                if (sender === 'ai') {
+                    // Tambahkan kelas styling typography dan parse markdown
+                    parentBubble.classList.add('prose', 'prose-sm', 'prose-invert', 'max-w-none');
+                    parentBubble.innerHTML = marked.parse(content);
+                } else {
+                    // Untuk pesan pengguna, hanya ganti newline
+                    parentBubble.innerHTML = content.replace(/\n/g, '<br>');
+                }
+            });
+
+            // Scroll to bottom after rendering
+            const chatboxElement = document.getElementById('chatbox');
+            if (chatboxElement) {
+                chatboxElement.scrollTop = chatboxElement.scrollHeight;
             }
         });
 

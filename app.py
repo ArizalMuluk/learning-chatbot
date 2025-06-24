@@ -95,64 +95,60 @@ def send_message():
     if not current_chat_id or current_chat_id not in session.get('chats', {}):
         return jsonify({'error': 'Sesi chat tidak valid atau tidak ditemukan.'}), 400
 
-    # Simpan pesan pengguna ke sesi terlebih dahulu
-    session['chats'][current_chat_id]['messages'].append({'sender': 'user', 'message': user_message})
-    session.modified = True
-
     def generate_stream():
-        full_response = []
         try:
             # Panggil fungsi AI dalam mode streaming
             for line in get_ai_suggestion(user_message, stream=True):
                 # Teruskan setiap potongan data ke klien
                 yield line
-                
-                # Kumpulkan potongan untuk disimpan nanti
-                if line.startswith('data: '):
-                    data_str = line[6:].strip()
-                    if data_str != '[DONE]':
-                        try:
-                            data_json = json.loads(data_str)
-                            content = data_json.get('choices', [{}])[0].get('delta', {}).get('content')
-                            if content:
-                                full_response.append(content)
-                        except json.JSONDecodeError:
-                            pass # Abaikan baris yang bukan JSON valid
-
-            # Setelah stream selesai, simpan respons lengkap ke sesi
-            final_ai_message = "".join(full_response)
-            session['chats'][current_chat_id]['messages'].append({'sender': 'ai', 'message': final_ai_message})
-
-            # Logika pembuatan judul otomatis
-            new_title = None
-            current_chat_data = session['chats'][current_chat_id]
-            if "Chat Baru" in current_chat_data['title'] and len(current_chat_data['messages']) >= 3:
-                try:
-                    user_first_q = current_chat_data['messages'][1]['message']
-                    context_for_title = f"Buatlah judul yang sangat singkat (maksimal 5 kata dan relevan) untuk percakapan yang diawali dengan pertanyaan: '{user_first_q}'"
-                    
-                    # Call AI in non-streaming mode for title generation
-                    # get_ai_suggestion returns a string directly when stream=False
-                    generated_title_raw = get_ai_suggestion(context_for_title, stream=False)
-                    
-                    # Check if the returned string is an error message from get_ai_suggestion
-                    if generated_title_raw and not generated_title_raw.startswith("Maaf,"): # Simple check for error messages
-                        generated_title = generated_title_raw.replace("Judul:", "").replace("Title:", "").strip().split('\n')[0]
-                        if generated_title:
-                            new_title = generated_title[:50]
-                            session['chats'][current_chat_id]['title'] = new_title
-                except Exception as e:
-                    print(f"Error generating title with AI (unexpected exception in title block): {e}")
-            
-            session.modified = True
-
-            # Kirim event terakhir untuk menandakan selesai dan mengirim judul baru
-            end_payload = {"event": "end", "new_title": new_title or current_chat_data['title']}
-            yield f"data: {json.dumps(end_payload)}\n\n"
-
         except Exception as e:
             print(f"Error during stream generation: {e}")
             error_payload = {"error": "Terjadi kesalahan internal saat memproses respons AI."}
             yield f"data: {json.dumps(error_payload)}\n\n"
 
     return Response(generate_stream(), mimetype='text/event-stream')
+
+@app.route('/save_chat', methods=['POST'])
+def save_chat():
+    data = request.get_json()
+    user_message = data.get('user_message')
+    ai_message = data.get('ai_message')
+    current_chat_id = session.get('current_chat_id')
+
+    if not all([user_message, ai_message, current_chat_id]) or current_chat_id not in session['chats']:
+        return jsonify({'error': 'Data tidak lengkap atau sesi tidak valid.'}), 400
+
+    # Simpan pesan pengguna dan AI ke sesi
+    chat_messages = session['chats'][current_chat_id]['messages']
+    # Hindari duplikasi jika frontend mengirim pesan pengguna lagi
+    if not chat_messages or chat_messages[-1]['message'] != user_message:
+        chat_messages.append({'sender': 'user', 'message': user_message})
+    chat_messages.append({'sender': 'ai', 'message': ai_message})
+
+    # Logika pembuatan judul otomatis
+    new_title = None
+    current_chat_data = session['chats'][current_chat_id]
+    if "Chat Baru" in current_chat_data['title'] and len(current_chat_data['messages']) >= 2: # Cukup 1 pasang pesan
+        try:
+            user_first_q = next((msg['message'] for msg in current_chat_data['messages'] if msg['sender'] == 'user'), None)
+            if user_first_q:
+                context_for_title = f"Buatlah judul yang sangat singkat (maksimal 5 kata dan relevan) untuk percakapan yang diawali dengan pertanyaan: '{user_first_q}'"
+                generated_title_raw = get_ai_suggestion(context_for_title, stream=False)
+                
+                if generated_title_raw and not generated_title_raw.startswith("Maaf,"):
+                    generated_title = generated_title_raw.replace("Judul:", "").replace("Title:", "").strip().split('\n')[0]
+                    if generated_title:
+                        new_title = generated_title.strip('"').strip("'")[:50]
+                        session['chats'][current_chat_id]['title'] = new_title
+        except Exception as e:
+            print(f"Error generating title with AI: {e}")
+    
+    session.modified = True
+
+    return jsonify({
+        'status': 'success', 
+        'new_title': new_title or session['chats'][current_chat_id]['title']
+    })
+
+if __name__ == '__main__':
+    app.run(debug=True)

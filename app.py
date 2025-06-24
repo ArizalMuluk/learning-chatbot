@@ -8,7 +8,11 @@ import json
 
 load_dotenv()
 
-app = Flask(__name__)
+# Get the directory of the current file (app.py or index.py)
+current_dir = os.path.dirname(os.path.abspath(__file__))
+# Assuming 'templates' folder is one level up from the current file's directory
+template_dir = os.path.join(current_dir, '..', 'templates')
+app = Flask(__name__, template_folder=template_dir)
 # Penting: Atur SECRET_KEY untuk menggunakan sesi Flask
 # Ganti dengan kunci rahasia yang kuat dan unik di lingkungan produksi
 app.secret_key = os.environ.get('FLASK_SECRET_KEY', os.urandom(24)) # Lebih baik dari variabel lingkungan

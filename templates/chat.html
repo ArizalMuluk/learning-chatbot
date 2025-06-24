@@ -41,10 +41,12 @@
         }
     </style>
 </head>
-<body class="bg-slate-900 text-slate-200 flex h-screen font-sans overflow-hidden">
+<body class="bg-slate-900 text-slate-200 flex h-screen font-sans">
 
     <!-- Sidebar -->
-    <aside id="sidebar" class="w-72 bg-slate-800 p-4 space-y-4 flex flex-col shadow-lg flex-shrink-0">
+    <aside id="sidebar" class="w-72 bg-slate-800 p-4 space-y-4 flex flex-col shadow-lg flex-shrink-0
+                               fixed inset-y-0 left-0 z-50 w-64 transform -translate-x-full transition-transform duration-300 ease-in-out
+                               lg:relative lg:translate-x-0 lg:w-72">
         <!-- Tombol Chat Baru -->
         <form action="{{ url_for('new_chat') }}" method="POST" class="w-full">
             <button type="submit" id="newChatButton" 
@@ -91,10 +93,16 @@
         </p>
     </aside>
 
+    <!-- Overlay for mobile sidebar -->
+    <div id="overlay" class="fixed inset-0 bg-black bg-opacity-50 z-40 hidden lg:hidden"></div>
+
     <!-- Main Content Area -->
     <div class="flex-grow flex flex-col h-screen overflow-hidden"> <!-- overflow-hidden untuk mencegah double scrollbar -->
         <!-- Header -->
-        <header class="bg-slate-800 p-4 shadow-md flex-shrink-0">
+        <header class="bg-slate-800 p-4 shadow-md flex-shrink-0 relative">
+            <button id="sidebarToggle" class="absolute left-4 top-1/2 -translate-y-1/2 text-slate-200 text-2xl lg:hidden">
+                <i class="fas fa-bars"></i>
+            </button>
             <h1 class="text-2xl font-semibold text-sky-400 text-center">
                 <i class="fas fa-brain mr-2"></i>Learning Assistant
             </h1>
@@ -145,6 +153,9 @@
         const historyList = document.getElementById('historyList');
         const searchHistoryInput = document.getElementById('searchHistoryInput');
         const currentChatId = "{{ current_chat_id | safe }}";
+        const sidebar = document.getElementById('sidebar');
+        const sidebarToggle = document.getElementById('sidebarToggle');
+        const overlay = document.getElementById('overlay');
         let typingIndicatorElement = null;
 
         function addMessageToChatbox(message, sender) {
@@ -262,6 +273,30 @@
             });
         }
         
+        // Sidebar toggle logic
+        function toggleSidebar() {
+            sidebar.classList.toggle('-translate-x-full');
+            overlay.classList.toggle('hidden');
+            document.body.classList.toggle('overflow-hidden'); // Prevent scrolling body when sidebar is open
+        }
+
+        if (sidebarToggle) {
+            sidebarToggle.addEventListener('click', toggleSidebar);
+        }
+
+        if (overlay) {
+            overlay.addEventListener('click', toggleSidebar);
+        }
+
+        // Close sidebar if window is resized to desktop size (and it was open)
+        window.addEventListener('resize', () => {
+            if (window.innerWidth >= 1024 && !sidebar.classList.contains('-translate-x-full')) { // 'lg' breakpoint
+                sidebar.classList.add('-translate-x-full'); // Hide it (will be overridden by lg:translate-x-0)
+                overlay.classList.add('hidden');
+                document.body.classList.remove('overflow-hidden');
+            }
+        });
+
         if (userInput) userInput.focus();
     </script>
 </body>
